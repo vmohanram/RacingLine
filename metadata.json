@@ -1,0 +1,6 @@
+{
+  "name": "F1 Paper Track Vision Analyzer",
+  "description": "Interactive F1 racing line analyzer using printable paper tracks with fiducial QR code anchors. Automatically extracts hand-drawn black ink curves, simulates professional vehicle dynamics, displays speed/braking overlays, and ranks lap times on a global leaderboard. Powered by Gemini 3.5.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
