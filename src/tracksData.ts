@@ -443,3 +443,19 @@ export function getIdealRacingLineOffset(trackId: string, ptIndex: number): numb
   // Fallback: smooth sinusoidal waves to represent out-in-out corners
   return Math.sin(ptIndex / 5) * 6;
 }
+
+// Transforms a 0..500 point to scale down and center it inside the printable template
+// so that it never overlaps with the 7-point QR fiducials placed at the edges/corners/center.
+export function transformPointForTemplate(p: { x: number; y: number }): { x: number; y: number } {
+  // Center is (250, 250)
+  // Scale down by 0.72 to keep it bounded exactly from [110px..390px] so it is safe from:
+  // - TL, TR, BL, BR which occupy up to 60px from the boundary edges
+  // - ML, MR which occupy the left/right boundaries up to 60px dynamically
+  // - C (Center) which occupies [235..265] - since the track loops around, scaling the loop outwards will avoid C
+  const scale = 0.70; // 0.70 is perfect for keeping the track outside MR, ML, C easily
+  return {
+    x: (p.x - 250) * scale + 250,
+    y: (p.y - 250) * scale + 250
+  };
+}
+

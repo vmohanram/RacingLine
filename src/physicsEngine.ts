@@ -271,15 +271,17 @@ export function simulateLap(
   }
   const averageDeviation = totalDev / steps;
 
-  // Add realistic padding to final lap times depending on track difficulty and driver deviation
-  // A perfect F1 simulator lap matches idealLapTime when averageDeviation is near 0.
-  // Each pixel of deviation adds minor timing delays (to represent tire slides, bad exits etc)
-  const scalarTime = track.idealLapTime * (cumulativeDist / calculateTrackLength(track));
-  
-  // Adjusted lap time based on actual calculated physics speeds
-  // Let's scale totalLapTime to realistic F1 figures for each track:
-  const scaleRatio = track.idealLapTime / (totalLapTime * 0.9); 
-  const processedLapTime = totalLapTime * (scaleRatio < 0.5 ? 0.8 : scaleRatio) + (averageDeviation * 0.05);
+  // Track specific calibration constants representing physical simulation times on a perfect line
+  const BASE_IDEAL_PHYSICAL_TIMES: Record<string, number> = {
+    monza: 72.8,
+    silverstone: 85.2,
+    monaco: 80.4
+  };
+
+  const baseIdealPhysical = BASE_IDEAL_PHYSICAL_TIMES[track.id] || 80.0;
+  // Scale factor to map the physics totalLapTime relative to realistic F1 ideal pole lap times
+  const scaleFactor = track.idealLapTime / baseIdealPhysical;
+  const processedLapTime = totalLapTime * scaleFactor + (averageDeviation * 0.08);
 
   return {
     lapTime: parseFloat(processedLapTime.toFixed(2)),
@@ -323,7 +325,7 @@ function calculateRadiusOfCurvature(
 
   const a = Math.sqrt((bx - cx) * (bx - cx) + (by - cy) * (by - cy));
   const b = Math.sqrt((ax - cx) * (ax - cx) + (ay - cy) * (ay - cy));
-  const c = Math.sqrt((ax - bx) * (ax - bx) + (ay - by) * (by - by));
+  const c = Math.sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by));
 
   // If points are collinear or identical, radius is infinite
   if (a < 1e-2 || b < 1e-2 || c < 1e-2) return 10000;

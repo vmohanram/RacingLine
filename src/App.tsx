@@ -23,14 +23,17 @@ import Leaderboard from "./components/Leaderboard";
 import TelemetryPlots from "./components/TelemetryPlots";
 import TrackTemplateGenerator from "./components/TrackTemplateGenerator";
 import VisionSystem from "./components/VisionSystem";
+import RacetrackMinimap from "./components/RacetrackMinimap";
 
 export default function App() {
   const [activeTrackId, setActiveTrackId] = useState<string>("monza");
+  const [hoveredTelemetryIndex, setHoveredTelemetryIndex] = useState<number | null>(null);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetrySummary | null>(null);
   const [driverName, setDriverName] = useState<string>("");
   const [isSubmittingScore, setIsSubmittingScore] = useState<boolean>(false);
   const [hasSubmittedThisLap, setHasSubmittedThisLap] = useState<boolean>(false);
+  const [activeResultsTab, setActiveResultsTab] = useState<"verdict" | "analytics" | "leaderboard">("verdict");
   
   // coaching states
   const [coachingText, setCoachingText] = useState<string>("");
@@ -102,6 +105,7 @@ export default function App() {
       setCoachingScore(Math.min(100, Math.max(10, Math.round(90 - (summary.lapTime - summary.idealLapTime) * 3))));
     } finally {
       setIsCoachingLoading(false);
+      setActiveResultsTab("verdict");
     }
   };
 
@@ -140,51 +144,150 @@ export default function App() {
 
   // Safe custom Markdown Parser for clean presentation
   const parseMarkdown = (text: string) => {
-    return text.split("\n").map((line, idx) => {
-      if (line.startsWith("###")) {
-        return (
-          <h4 key={idx} className="text-xs font-bold text-cyan-400 mt-4 mb-1.5 uppercase font-mono tracking-wider flex items-center gap-1.5">
-            <ChevronRight className="w-3.5 h-3.5" />
-            {line.replace("###", "").trim()}
+    if (!text) return null;
+    
+    const lines = text.split("\n");
+    let inList = false;
+    let listItems: React.ReactNode[] = [];
+    const elements: React.ReactNode[] = [];
+
+    const flushList = (key: string | number) => {
+      if (listItems.length > 0) {
+        elements.push(
+          <ul key={`ul-${key}`} className="space-y-2 my-2 list-none pl-1">
+            {...listItems}
+          </ul>
+        );
+        listItems = [];
+        inList = false;
+      }
+    };
+
+    lines.forEach((line, idx) => {
+      const trimmed = line.trim();
+      
+      // Headers
+      if (trimmed.startsWith("###")) {
+        flushList(idx);
+        elements.push(
+          <h4 key={idx} className="text-[11px] font-bold text-cyan-400 mt-4 mb-2 uppercase font-mono tracking-wider flex items-center gap-1.5 border-b border-slate-800/40 pb-1">
+            <span className="w-1.5 h-3 bg-cyan-400 rounded-sm inline-block shrink-0" />
+            {renderInlineMarkdown(trimmed.replace("###", "").trim())}
           </h4>
         );
+        return;
       }
-      if (line.startsWith("##")) {
-        return (
-          <h3 key={idx} className="text-sm font-bold text-rose-500 mt-5 mb-2 font-sans tracking-tight border-b border-slate-800 pb-1 uppercase">
-            {line.replace("##", "").trim()}
+      if (trimmed.startsWith("##")) {
+        flushList(idx);
+        elements.push(
+          <h3 key={idx} className="text-xs font-black text-rose-500 mt-5 mb-2.5 font-sans tracking-tight border-b border-slate-800 pb-1 uppercase flex items-center gap-1.5">
+            <span className="w-2 h-3.5 bg-rose-500 rounded-sm inline-block shrink-0" />
+            {renderInlineMarkdown(trimmed.replace("##", "").trim())}
           </h3>
         );
+        return;
       }
-      if (line.startsWith("#")) {
-        return (
-          <h2 key={idx} className="text-base font-extrabold text-white mt-5 mb-3 font-sans tracking-tight border-b-2 border-slate-850 pb-1.5">
-            {line.replace("#", "").trim()}
+      if (trimmed.startsWith("#")) {
+        flushList(idx);
+        elements.push(
+          <h2 key={idx} className="text-sm font-black text-white mt-6 mb-3 font-sans tracking-tight border-b-2 border-slate-800 pb-1.5 uppercase bg-slate-950/60 px-3 py-1.5 rounded-lg border border-slate-800/80">
+            {renderInlineMarkdown(trimmed.replace("#", "").trim())}
           </h2>
         );
+        return;
       }
-      if (line.trim().startsWith("-") || line.trim().startsWith("*")) {
-        const content = line.trim().substring(1).trim();
-        return (
-          <li key={idx} className="text-xs text-slate-300 ml-4 list-disc mb-1 leading-relaxed">
-            {renderInlineBold(content)}
+
+      // Blockquotes
+      if (trimmed.startsWith(">")) {
+        flushList(idx);
+        elements.push(
+          <blockquote key={idx} className="border-l-3 border-rose-500 bg-rose-950/10 px-3 py-2 my-3 rounded-r-lg text-xs italic text-rose-200 leading-relaxed font-mono">
+            {renderInlineMarkdown(trimmed.substring(1).trim())}
+          </blockquote>
+        );
+        return;
+      }
+
+      // Bullets (unordered lists)
+      if (trimmed.startsWith("-") || trimmed.slice(0, 2) === "* " || trimmed === "*") {
+        inList = true;
+        const content = trimmed.startsWith("-") ? trimmed.substring(1).trim() : trimmed.substring(1).trim();
+        listItems.push(
+          <li key={`li-${idx}`} className="text-xs text-slate-300 ml-1 mb-1 leading-relaxed font-sans flex items-start gap-2">
+            <span className="text-rose-500 font-bold mt-0.5 select-none shrink-0">•</span>
+            <span>{renderInlineMarkdown(content)}</span>
           </li>
         );
+        return;
       }
-      if (line.trim() === "") return <div key={idx} className="h-2" />;
-      return (
-        <p key={idx} className="text-xs text-slate-300 leading-relaxed mb-2.5">
-          {renderInlineBold(line)}
+
+      // Numbered lists (e.g. "1. ", "2. ")
+      const numMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+      if (numMatch) {
+        inList = true;
+        const num = numMatch[1];
+        const content = numMatch[2];
+        listItems.push(
+          <li key={`li-num-${idx}`} className="text-xs text-slate-300 ml-1 mb-1 leading-relaxed font-sans flex items-start gap-2">
+            <span className="text-cyan-400 font-mono text-[9px] bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-900/40 mt-0.5 shrink-0 leading-none">{num}</span>
+            <span className="pt-0.5">{renderInlineMarkdown(content)}</span>
+          </li>
+        );
+        return;
+      }
+
+      // Blank lines or clear separators
+      if (trimmed === "") {
+        flushList(idx);
+        elements.push(<div key={idx} className="h-2" />);
+        return;
+      }
+
+      // Horizontal rules
+      if (trimmed === "---" || trimmed === "***") {
+        flushList(idx);
+        elements.push(<hr key={idx} className="border-slate-800 my-3" />);
+        return;
+      }
+
+      // Regular paragraph
+      flushList(idx);
+      elements.push(
+        <p key={idx} className="text-xs text-slate-350 leading-relaxed mb-2 font-sans select-text">
+          {renderInlineMarkdown(trimmed)}
         </p>
       );
     });
+
+    // Final flush
+    flushList("final");
+
+    return elements;
   };
 
-  const renderInlineBold = (line: string) => {
-    const parts = line.split(/\*\*(.*?)\*\*/g);
+  const renderInlineMarkdown = (line: string) => {
+    const parts = line.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`)/g);
     return parts.map((part, i) => {
-      if (i % 2 === 1) {
-        return <strong key={i} className="text-white font-bold">{part}</strong>;
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={i} className="text-white font-bold text-cyan-300">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+      if (part.startsWith("*") && part.endsWith("*")) {
+        return (
+          <em key={i} className="italic text-slate-200">
+            {part.slice(1, -1)}
+          </em>
+        );
+      }
+      if (part.startsWith("`") && part.endsWith("`")) {
+        return (
+          <code key={i} className="font-mono bg-slate-950 text-rose-450 text-[10px] px-1.5 py-0.5 rounded border border-slate-800 mx-0.5 font-semibold text-rose-400">
+            {part.slice(1, -1)}
+          </code>
+        );
       }
       return part;
     });
@@ -205,9 +308,6 @@ export default function App() {
               <h1 className="text-lg font-black tracking-tight font-sans text-white uppercase leading-none">
                 Paper Track Telemetry
               </h1>
-              <span className="text-[10px] text-slate-400 font-mono uppercase tracking-widest mt-1 block">
-                Aerodynamic & Curvature Vision Solver
-              </span>
             </div>
           </div>
 
@@ -249,166 +349,281 @@ export default function App() {
       {/* 3. MAIN DASHBOARD PORTAL */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
         
-        {/* Row 1: Setup & Track Display */}
+        {/* HORIZONTALLY ALIGNED TRACKSELECTOR PUSHED TO THE TOP */}
+        <TrackSelector
+          activeTrackId={activeTrackId}
+          onTrackChange={(id) => {
+            setActiveTrackId(id);
+            setTelemetry(null);
+            setCoachingText("");
+            setCoachingScore(null);
+            setHoveredTelemetryIndex(null);
+          }}
+        />
+
+        {/* THE MAIN PORTAL CONTENT GRID (VisionSystem central-left, Leaderboard on side when idle) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
-          {/* Column A (Left 4/12): Selectors and Leaderboards */}
-          <div className="lg:col-span-4 space-y-6">
-            <TrackSelector
-              activeTrackId={activeTrackId}
-              onTrackChange={(id) => {
-                setActiveTrackId(id);
-                setTelemetry(null);
-                setCoachingText("");
-                setCoachingScore(null);
-              }}
-            />
-            
-            {/* Embedded Leaderboard to save desktop margin */}
-            <Leaderboard entries={leaderboard} currentTrackId={activeTrackId} />
-          </div>
-
-          {/* Column B (Right 8/12): Live Camera View and Tracing */}
-          <div className="lg:col-span-8 space-y-6">
+          {/* Bigger and centered sketch interface (grows to 12 columns once telemetry loads for high immersion) */}
+          <div className={`${telemetry ? "lg:col-span-12" : "lg:col-span-9"} space-y-6`}>
             <VisionSystem
               track={activeTrackObj}
               onAnalysisComplete={handleAnalysisComplete}
+              hoveredTelemetryIndex={hoveredTelemetryIndex}
+              summary={telemetry}
+              onRefreshLeaderboard={fetchLeaderboard}
             />
           </div>
 
+          {/* Sidebar leaderboard ONLY when we are loading/idle (disappears into tabs once analyzed) */}
+          {!telemetry && (
+            <div className="lg:col-span-3 space-y-6 lg:sticky lg:top-20">
+              <Leaderboard entries={leaderboard} currentTrackId={activeTrackId} />
+            </div>
+          )}
+
         </div>
 
-        {/* Dynamic Telemetry Results - Triggered after run simulation */}
+        {/* Dynamic Telemetry Results Tabbed Workspace - Triggered after lap simulation */}
         {telemetry && (
-          <div id="results_telemetry" className="space-y-6 transition-all duration-500 animate-fadeIn">
+          <div id="results_telemetry" className="space-y-6 transition-all duration-500 animate-fadeIn bg-slate-900/10 border border-slate-800/40 p-5 rounded-2xl">
             
-            {/* Plots Section */}
-            <TelemetryPlots summary={telemetry} />
+            {/* TAB SELECTOR STRIP WITH MICRO-METRICS */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800/80 pb-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setActiveResultsTab("verdict")}
+                  className={`px-4 py-2 rounded-lg text-[11px] font-sans tracking-wider uppercase transition-all duration-300 font-bold cursor-pointer ${
+                    activeResultsTab === "verdict"
+                      ? "bg-rose-600 text-white shadow-[0_0_12px_rgba(225,29,72,0.3)]"
+                      : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                  }`}
+                >
+                  Race Engineer Verdict
+                </button>
+                <button
+                  onClick={() => setActiveResultsTab("analytics")}
+                  className={`px-4 py-2 rounded-lg text-[11px] font-sans tracking-wider uppercase transition-all duration-300 font-bold cursor-pointer ${
+                    activeResultsTab === "analytics"
+                      ? "bg-rose-600 text-white shadow-[0_0_12px_rgba(225,29,72,0.3)]"
+                      : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                  }`}
+                >
+                  Race Analytics Overview
+                </button>
+                <button
+                  onClick={() => setActiveResultsTab("leaderboard")}
+                  className={`px-4 py-2 rounded-lg text-[11px] font-sans tracking-wider uppercase transition-all duration-300 font-bold cursor-pointer ${
+                    activeResultsTab === "leaderboard"
+                      ? "bg-rose-600 text-white shadow-[0_0_12px_rgba(225,29,72,0.3)]"
+                      : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+                  }`}
+                >
+                  Circuit Leaderboard
+                </button>
+              </div>
 
-            {/* Pitwall Race Engineer Coaching & Score Panel */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              {/* Left Side: Race Engineer Comments */}
-              <div className="lg:col-span-8 bg-slate-900 border border-slate-805 border-slate-800 rounded-xl p-6 shadow-xl text-white">
-                <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
-                  <div className="flex items-center gap-3">
-                    <span className="w-2.5 h-2.5 bg-red-650 bg-rose-650 bg-rose-600 rounded-full animate-pulse" />
-                    <h3 className="font-sans font-bold tracking-tight text-base uppercase">
-                      Race Engineer Pitwall (Coaching)
-                    </h3>
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400 uppercase bg-slate-950 px-2.5 py-1 rounded-full border border-slate-800">
-                    Live Stream Grounding
-                  </span>
+              {/* Fast Telemetry Stats */}
+              <div className="flex items-center gap-3 bg-slate-950/60 border border-slate-800 px-3.5 py-1.5 rounded-lg text-[11px] font-mono">
+                <div className="text-slate-400 border-r border-slate-800 pr-3 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full" />
+                  LAP: <span className="text-white font-bold">{telemetry.lapTime.toFixed(2)}s</span>
                 </div>
+                <div className="text-slate-400 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                  AVG SPEED: <span className="text-white font-bold">{telemetry.avgSpeed.toFixed(0)} km/h</span>
+                </div>
+              </div>
+            </div>
 
-                {isCoachingLoading ? (
-                  <div className="py-12 text-center text-slate-400 space-y-3 font-mono text-sm">
-                    <RefreshCw className="w-8 h-8 text-cyan-400 animate-spin mx-auto" />
-                    <span className="block animate-pulse uppercase tracking-wider">
-                      Generative Intelligence analysis...
+            {/* TAB CONTENT PORTAL GRID */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              
+              {/* Left Side: Seamless Minimap Rendition (active in EVERY tab) */}
+              <div className="lg:col-span-4 bg-slate-950/40 border border-slate-800/80 rounded-xl p-4 flex flex-col justify-between">
+                <div className="mb-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Flag className="w-3.5 h-3.5 text-rose-500" />
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-slate-350">
+                      Telemetry Racing Line Map
                     </span>
                   </div>
-                ) : (
-                  <div className="prose prose-invert max-w-none text-slate-300 select-text">
-                    <div className="space-y-1">
-                      {coachingText ? parseMarkdown(coachingText) : (
-                        <p className="text-xs font-mono text-slate-500 italic">No feedback payload received.</p>
-                      )}
+                  <p className="text-[10px] text-slate-450 font-sans leading-tight">
+                    Dynamic geometry parsed from physical markers. Hover over telemetry analytics points to pinpoint locations.
+                  </p>
+                </div>
+                
+                <div className="flex-1 min-h-[290px] relative mt-2 border border-slate-900 bg-slate-950/60 rounded-lg overflow-hidden flex items-center justify-center p-2">
+                  <RacetrackMinimap
+                    track={activeTrackObj}
+                    summary={telemetry}
+                    hoveredIndex={hoveredTelemetryIndex}
+                  />
+                </div>
+              </div>
+
+              {/* Right Side: Tab-conditioned Content area */}
+              <div className="lg:col-span-8 flex flex-col">
+                {activeResultsTab === "verdict" && (
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 h-full flex-1">
+                    
+                    {/* Race Engineer Remarks */}
+                    <div className="md:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl text-white flex flex-col justify-between">
+                      <div className="w-full">
+                        <div className="flex items-center justify-between mb-4 border-b border-slate-800/85 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                            <h3 className="font-sans font-bold tracking-tight text-xs uppercase text-slate-200">
+                              Race Engineer Verdict
+                            </h3>
+                          </div>
+                          <span className="text-[9px] font-mono text-slate-500 uppercase bg-slate-950 px-2 py-0.5 rounded border border-slate-850">
+                            Telemetry Feedback
+                          </span>
+                        </div>
+
+                        {isCoachingLoading ? (
+                          <div className="py-16 text-center text-slate-400 space-y-3 font-mono text-xs">
+                            <RefreshCw className="w-6 h-6 text-cyan-400 animate-spin mx-auto" />
+                            <span className="block animate-pulse uppercase tracking-wider text-[10px] text-slate-500">
+                              Parsing racing lines...
+                            </span>
+                          </div>
+                        ) : (
+                          <div id="coaching_container" className="prose prose-invert max-w-none text-slate-300 select-text max-h-[310px] overflow-y-auto pr-1">
+                            <div className="space-y-1">
+                              {coachingText ? parseMarkdown(coachingText) : (
+                                <p className="text-xs font-mono text-slate-500 italic">No feedback payload received.</p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Radial Index Meter & Leaderboard score registration */}
+                    <div className="md:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl text-white flex flex-col justify-between">
+                      
+                      {/* Rating Meter */}
+                      <div className="text-center py-2">
+                        <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block mb-1.5">
+                          Lap Performance Index
+                        </span>
+                        
+                        {isCoachingLoading ? (
+                          <div className="w-22 h-22 rounded-full border-4 border-dashed border-slate-700 animate-spin mx-auto flex items-center justify-center">
+                            <span className="text-[10px] font-mono text-slate-500">CALC</span>
+                          </div>
+                        ) : (
+                          <div className="relative w-22 h-22 mx-auto flex items-center justify-center rounded-full border-4 border-cyan-500/10 shadow-[0_0_15px_rgba(6,182,212,0.1)] mb-1">
+                            {/* SVG Performance Dial */}
+                            <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                              <circle
+                                cx="44"
+                                cy="44"
+                                r="38"
+                                stroke="#1e293b"
+                                strokeWidth="5"
+                                fill="none"
+                              />
+                              <circle
+                                cx="44"
+                                cy="44"
+                                r="38"
+                                stroke="#06b6d4"
+                                strokeWidth="5"
+                                fill="none"
+                                strokeDasharray="238.7"
+                                strokeDashoffset={238.7 - (238.7 * (coachingScore || 0)) / 100}
+                              />
+                            </svg>
+                            <div className="text-center">
+                              <span className="text-2xl font-black tracking-tight font-mono text-white block">
+                                {coachingScore !== null ? coachingScore : "--"}
+                              </span>
+                              <span className="text-[9px] text-slate-450 block uppercase font-mono tracking-wider leading-none">
+                                SCORE
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-[10px] text-slate-400 font-mono mt-1.5 uppercase tracking-wide leading-tight">
+                          {coachingScore && coachingScore >= 85 ? "🏎️ Pro Class Apex Entry" : coachingScore && coachingScore >= 70 ? "🏁 Competent Pace" : "⚠️ Sub-optimal Apex Line"}
+                        </p>
+                      </div>
+
+                      {/* Register Record Form */}
+                      <div className="border-t border-slate-800 pt-3 mt-3">
+                        <span className="text-[11px] font-bold font-sans tracking-tight block text-white uppercase mb-1.5">
+                          Register Lap Record
+                        </span>
+                        
+                        {hasSubmittedThisLap ? (
+                          <div className="bg-emerald-950/40 border border-emerald-500/20 p-2.5 rounded-lg text-emerald-400 text-[10px] flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>Lap recorded successfully!</span>
+                          </div>
+                        ) : (
+                          <form onSubmit={handleLeaderboardSubmit} className="space-y-1.5">
+                            <div className="relative">
+                              <User className="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-500" />
+                              <input
+                                type="text"
+                                maxLength={12}
+                                value={driverName}
+                                onChange={(e) => setDriverName(e.target.value)}
+                                placeholder="Initials (e.g. HAM)"
+                                required
+                                disabled={isSubmittingScore}
+                                className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-cyan-500 p-1.5 pl-8 rounded-lg text-xs font-mono placeholder-slate-500 text-white focus:outline-none transition animate-none"
+                              />
+                            </div>
+                            <button
+                              type="submit"
+                              disabled={isSubmittingScore || !driverName.trim()}
+                              className="w-full flex items-center justify-center gap-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold p-1.5 rounded-lg text-xs font-sans uppercase tracking-wider transition disabled:opacity-50 cursor-pointer"
+                            >
+                              <Send className="w-3 h-3" />
+                              Save Record
+                            </button>
+                          </form>
+                        )}
+                      </div>
+
+                    </div>
+
+                  </div>
+                )}
+
+                {activeResultsTab === "analytics" && (
+                  <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-xl h-full flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-2.5">
+                        <div className="flex items-center gap-2">
+                          <Gauge className="w-4 h-4 text-rose-500" />
+                          <h3 className="font-sans font-bold tracking-tight text-xs uppercase text-slate-200">
+                            Telemetry Plots & Acceleration Forces
+                          </h3>
+                        </div>
+                        <span className="text-[9px] font-mono text-slate-500 uppercase bg-slate-950 px-2 py-0.5 rounded border border-slate-850">
+                          Active telemetry overlay
+                        </span>
+                      </div>
+                      
+                      <TelemetryPlots 
+                        summary={telemetry} 
+                        track={activeTrackObj} 
+                        onHoverIndexChange={setHoveredTelemetryIndex} 
+                      />
                     </div>
                   </div>
                 )}
-              </div>
 
-              {/* Right Side: Score Radial & Global Submission */}
-              <div className="lg:col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-6 shadow-xl text-white flex flex-col justify-between">
-                
-                {/* Score Dial */}
-                <div className="text-center py-4">
-                  <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400 block mb-2">
-                    Line Performance Rating
-                  </span>
-                  
-                  {isCoachingLoading ? (
-                    <div className="w-28 h-28 rounded-full border-4 border-dashed border-slate-700 animate-spin mx-auto flex items-center justify-center">
-                      <span className="text-xs font-mono text-slate-500">CALC</span>
-                    </div>
-                  ) : (
-                    <div className="relative w-28 h-28 mx-auto flex items-center justify-center rounded-full border-4 border-cyan-500/10 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-                      {/* SVG Circle Progress */}
-                      <svg className="absolute inset-0 w-full h-full transform -rotate-90">
-                        <circle
-                          cx="56"
-                          cy="56"
-                          r="48"
-                          stroke="#1e293b"
-                          strokeWidth="6"
-                          fill="none"
-                        />
-                        <circle
-                          cx="56"
-                          cy="56"
-                          r="48"
-                          stroke="#06b6d4"
-                          strokeWidth="6"
-                          fill="none"
-                          strokeDasharray="301.5"
-                          strokeDashoffset={301.5 - (301.5 * (coachingScore || 0)) / 100}
-                        />
-                      </svg>
-                      <div className="text-center">
-                        <span className="text-3xl font-extrabold tracking-tight font-mono text-white block">
-                          {coachingScore !== null ? coachingScore : "--"}
-                        </span>
-                        <span className="text-[10px] text-slate-400 block uppercase font-mono tracking-wider">
-                          INDEX
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <p className="text-[11px] text-slate-400 font-mono mt-3 uppercase tracking-wide">
-                    {coachingScore && coachingScore >= 85 ? "🏎️ Pro Class Apex Entry" : coachingScore && coachingScore >= 70 ? "🏁 Competent Pace" : "⚠️ Sub-optimal Apex Deviation"}
-                  </p>
-                </div>
-
-                {/* Save Lap Time to Leaderboard */}
-                <div className="border-t border-slate-800 pt-4 mt-4">
-                  <span className="text-xs font-bold font-sans tracking-tight block text-white uppercase mb-3">
-                    Register Lap Record
-                  </span>
-                  
-                  {hasSubmittedThisLap ? (
-                    <div className="bg-emerald-950/40 border border-emerald-500/20 p-3 rounded-lg text-emerald-400 text-xs flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>Lap successfully registered on global leaderboard!</span>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleLeaderboardSubmit} className="space-y-2">
-                      <div className="relative">
-                        <User className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-                        <input
-                          type="text"
-                          maxLength={12}
-                          value={driverName}
-                          onChange={(e) => setDriverName(e.target.value)}
-                          placeholder="Initials / Name (e.g., HAM)"
-                          required
-                          disabled={isSubmittingScore}
-                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 focus:border-cyan-500 p-2 pl-9 rounded-lg text-xs font-mono placeholder-slate-500 text-white focus:outline-none transition"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={isSubmittingScore || !driverName.trim()}
-                        className="w-full flex items-center justify-center gap-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold p-2.5 rounded-lg text-xs font-sans uppercase tracking-wider transition disabled:opacity-50 cursor-pointer"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                        Save Record Time
-                      </button>
-                    </form>
-                  )}
-                </div>
-
+                {activeResultsTab === "leaderboard" && (
+                  <div className="border border-slate-800 rounded-xl overflow-hidden shadow-xl h-full flex flex-col">
+                    <Leaderboard entries={leaderboard} currentTrackId={activeTrackId} />
+                  </div>
+                )}
               </div>
 
             </div>
