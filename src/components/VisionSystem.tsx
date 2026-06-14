@@ -647,6 +647,50 @@ export default function VisionSystem({
     const ctx = canvas.getContext("2d");
     if (!ctx) return "";
 
+    if (mode !== "digital" && loadedImageRef.current) {
+      ctx.drawImage(loadedImageRef.current, 0, 0, 500, 500);
+
+      ctx.fillStyle = "rgba(2, 6, 23, 0.18)";
+      ctx.fillRect(0, 0, 500, 500);
+
+      drawProjectedTrackCenterPath(ctx, "rgba(15, 23, 42, 0.32)", 20);
+      drawProjectedTrackCenterPath(ctx, "rgba(34, 211, 238, 0.18)", 5);
+      drawProjectedTrackCenterPath(ctx, "rgba(14, 165, 233, 0.65)", 1.5, true);
+
+      drawLinearClosedPath(
+        ctx,
+        getOffsetPathPoints(
+          track.points.map((_, i) => getIdealRacingLineOffset(track.id, i)),
+          true
+        )
+      );
+      ctx.strokeStyle = "#22c55e";
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = "rgba(34, 197, 94, 0.22)";
+      ctx.shadowBlur = 4;
+      ctx.stroke();
+
+      ctx.save();
+      drawLinearClosedPath(ctx, getOffsetPathPoints(offsets, true));
+      ctx.strokeStyle = "rgba(96, 165, 250, 0.98)";
+      ctx.lineWidth = 3.5;
+      ctx.shadowColor = "#60a5fa";
+      ctx.shadowBlur = 5;
+      ctx.stroke();
+      ctx.restore();
+
+      const projectedStart = getBilinearProjectedCoordinate(
+        transformPointForTemplate(track.points[0]).x,
+        transformPointForTemplate(track.points[0]).y
+      );
+      ctx.beginPath();
+      ctx.arc(projectedStart.x, projectedStart.y, 5, 0, 2 * Math.PI);
+      ctx.fillStyle = "#e11d48";
+      ctx.fill();
+
+      return canvas.toDataURL("image/png");
+    }
+
     // 1. Clear background
     ctx.fillStyle = "#0f172a";
     ctx.fillRect(0, 0, 500, 500);

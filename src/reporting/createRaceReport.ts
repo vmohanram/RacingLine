@@ -100,6 +100,46 @@ function markdownToHtml(markdown: string) {
   return html.join("");
 }
 
+function renderInlineHtml(line: string) {
+  return escapeHtml(line)
+    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+    .replace(/`(.*?)`/g, "<code>$1</code>");
+}
+
+function parseCoachingCards(text: string) {
+  const cards: Array<{ title: string; body: string }> = [];
+  if (!text) return cards;
+
+  const lines = text.split("\n");
+  let currentTitle = "";
+  let currentBody: string[] = [];
+
+  const flushCard = () => {
+    if (!currentTitle) return;
+    const body = currentBody
+      .map((line) => line.replace(/^[-*>]\s*/, "").trim())
+      .filter(Boolean)
+      .join(" ");
+    cards.push({ title: currentTitle, body });
+  };
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (trimmed.startsWith("## ")) {
+      flushCard();
+      currentTitle = trimmed.replace(/^##\s+/, "").trim();
+      currentBody = [];
+      return;
+    }
+    currentBody.push(trimmed);
+  });
+
+  flushCard();
+  return cards;
+}
+
 function renderConceptMetrics(summary: TelemetrySummary) {
   const metrics = buildDriverProxyAnalysis(summary).metrics;
   if (!metrics.length) {
@@ -128,9 +168,26 @@ function renderConceptMetrics(summary: TelemetrySummary) {
 
 export function openRaceReportPdf(options: RaceReportOptions) {
   const { track, summary, coachingText, reportTrackImage, sourceImage } = options;
+  const verdictCards = parseCoachingCards(coachingText);
   const verdictHtml = markdownToHtml(
     coachingText || "## Race Engineer Verdict\nNo verdict payload was available for this session."
   );
+  const verdictCardsHtml = verdictCards.length
+    ? `
+      <div class="verdict-cards">
+        ${verdictCards
+          .map(
+            (card) => `
+              <article class="verdict-card">
+                <span class="verdict-card-title">${escapeHtml(card.title)}</span>
+                <div class="verdict-card-body">${renderInlineHtml(card.body)}</div>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+    `
+    : `<p class="verdict-empty">No feedback payload received.</p>`;
 
   const capturedTrackBlock = reportTrackImage
     ? `<img src="${reportTrackImage}" alt="Captured racing line" class="track-image" />`
@@ -179,7 +236,7 @@ export function openRaceReportPdf(options: RaceReportOptions) {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${escapeHtml(track.name)} Interactive Report</title>
         <style>
-          @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700;800&display=swap");
+          @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@700;900&family=Share+Tech+Mono&display=swap");
 
           :root {
             color-scheme: dark;
@@ -190,6 +247,9 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             --text: #e2e8f0;
             --heading: #ffffff;
             --accent: #22d3ee;
+            --font-body: "Manrope", system-ui, sans-serif;
+            --font-heading: "Orbitron", sans-serif;
+            --font-data: "Share Tech Mono", monospace;
           }
           * {
             box-sizing: border-box;
@@ -201,7 +261,7 @@ export function openRaceReportPdf(options: RaceReportOptions) {
               radial-gradient(circle at 80% 20%, rgba(244,63,94,0.08), transparent 24%),
               var(--bg);
             color: var(--text);
-            font-family: "Manrope", system-ui, sans-serif;
+            font-family: var(--font-body);
           }
           .report {
             max-width: 1380px;
@@ -244,6 +304,7 @@ export function openRaceReportPdf(options: RaceReportOptions) {
           .eyebrow {
             display: block;
             font-size: 11px;
+            font-family: var(--font-heading);
             letter-spacing: 0.2em;
             text-transform: uppercase;
             color: #67e8f9;
@@ -252,12 +313,12 @@ export function openRaceReportPdf(options: RaceReportOptions) {
           }
           h1 {
             margin: 0;
-            font-family: "Sora", sans-serif;
+            font-family: var(--font-heading);
             font-size: 34px;
             color: var(--heading);
             text-transform: uppercase;
-            font-style: italic;
-            font-weight: 600;
+            font-style: normal;
+            font-weight: 700;
             letter-spacing: -0.05em;
             line-height: 0.92;
           }
@@ -265,6 +326,7 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             margin: 0 0 14px;
             color: var(--heading);
             font-size: 18px;
+            font-family: var(--font-heading);
             text-transform: uppercase;
             letter-spacing: 0.08em;
           }
@@ -304,12 +366,14 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             display: block;
             color: var(--muted);
             font-size: 10px;
+            font-family: var(--font-data);
             letter-spacing: 0.18em;
             text-transform: uppercase;
             margin-bottom: 8px;
           }
           .metric strong {
             font-size: 22px;
+            font-family: var(--font-data);
             color: white;
           }
           .panel-grid {
@@ -481,6 +545,75 @@ export function openRaceReportPdf(options: RaceReportOptions) {
           .verdict {
             margin-top: 8px;
           }
+          .verdict-brief {
+            margin-bottom: 20px;
+            border-radius: 18px;
+            border: 1px solid rgba(244,63,94,0.15);
+            background: rgba(244,63,94,0.05);
+            padding: 14px 16px;
+          }
+          .verdict-brief span {
+            display: block;
+            font-family: var(--font-data);
+            font-size: 10px;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+            color: #fda4af;
+          }
+          .verdict-brief p {
+            margin: 6px 0 0;
+            font-size: 14px;
+            line-height: 1.7;
+            color: #cbd5e1;
+          }
+          .verdict-cards {
+            display: grid;
+            gap: 16px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .verdict-card {
+            border-radius: 18px;
+            border: 1px solid rgba(30,41,59,0.9);
+            background: linear-gradient(180deg, rgba(2,6,23,0.72), rgba(15,23,42,0.9));
+            padding: 16px 18px;
+            box-shadow: 0 12px 30px rgba(2,6,23,0.24);
+          }
+          .verdict-card-title {
+            display: block;
+            font-family: var(--font-data);
+            font-size: 10px;
+            letter-spacing: 0.24em;
+            text-transform: uppercase;
+            color: #67e8f9;
+          }
+          .verdict-card-body {
+            margin-top: 12px;
+            font-size: 19px;
+            line-height: 1.8;
+            font-weight: 600;
+            color: #ffffff;
+          }
+          .verdict-card-body strong {
+            color: #67e8f9;
+          }
+          .verdict-card-body em {
+            color: #e2e8f0;
+          }
+          .verdict-card-body code {
+            font-family: var(--font-data);
+            background: #020617;
+            border: 1px solid #1e293b;
+            border-radius: 6px;
+            padding: 1px 5px;
+            color: #fda4af;
+            font-size: 12px;
+          }
+          .verdict-empty {
+            font-family: var(--font-data);
+            font-size: 12px;
+            color: #64748b;
+            font-style: italic;
+          }
           .verdict h1, .verdict h2, .verdict h3 {
             color: white;
             margin: 16px 0 8px;
@@ -570,6 +703,9 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             .metrics {
               grid-template-columns: 1fr;
             }
+            .verdict-cards {
+              grid-template-columns: 1fr;
+            }
             .track-review-head {
               flex-direction: column;
             }
@@ -618,7 +754,11 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             <div class="panel">
               <span class="eyebrow">Race Engineer Verdict</span>
               <h2>Session Briefing</h2>
-              <div class="verdict">${verdictHtml}</div>
+              <div class="verdict-brief">
+                <span>Engineer Brief</span>
+                <p>This view is for the narrative readout: what the lap did well, where time was lost, and what the next correction should be.</p>
+              </div>
+              <div class="verdict">${verdictCards.length ? verdictCardsHtml : verdictHtml}</div>
               ${capturedTrackReviewBlock}
             </div>
           </div>
@@ -742,7 +882,7 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             const offsetY = (inner - bounds.height * scale) / 2;
             return {
               x: pad + offsetX + (point.x - bounds.minX) * scale,
-              y: 420 - (pad + offsetY + (point.y - bounds.minY) * scale)
+              y: pad + offsetY + (point.y - bounds.minY) * scale
             };
           }
 

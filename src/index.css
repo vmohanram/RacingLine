@@ -1,12 +1,15 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@700;900&family=Share+Tech+Mono&display=swap");
 @import "tailwindcss";
 
 :root {
-	font-family: "Manrope", sans-serif;
+	--font-body: "Manrope", sans-serif;
+	--font-heading: "Orbitron", sans-serif;
+	--font-data: "Share Tech Mono", monospace;
+	font-family: var(--font-body);
 }
 
 body {
-	font-family: "Manrope", sans-serif;
+	font-family: var(--font-body);
 	background: #020617;
 }
 
@@ -15,16 +18,24 @@ body {
 }
 
 .masthead-title {
-	font-family: "Sora", sans-serif;
-	font-style: italic;
-	font-weight: 600;
+	font-family: var(--font-heading);
+	font-style: normal;
+	font-weight: 700;
 	letter-spacing: -0.05em;
 	text-transform: uppercase;
 	text-wrap: balance;
 }
 
 .masthead-tagline {
+	font-family: var(--font-heading);
+	font-weight: 700;
 	letter-spacing: 0.24em;
+}
+
+.font-mono,
+code,
+pre {
+	font-family: var(--font-data);
 }
 
 @keyframes simulate-progress-sweep {
