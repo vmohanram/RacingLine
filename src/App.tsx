@@ -323,7 +323,7 @@ export default function App() {
             <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <h1 className="masthead-title text-[1.55rem] text-white leading-[0.88] sm:text-[2rem] xl:text-[2.65rem]">
-                  Formula 1 Paper Track Vision System
+                  F1 Paper Track Vision System
                 </h1>
                 <p className="masthead-tagline mt-3 max-w-3xl text-[10px] font-mono uppercase text-slate-500 sm:text-[11px]">
                   Engineered with physical friction limits &amp; Generative AI co-driving
@@ -694,7 +694,7 @@ export default function App() {
       <footer className="bg-slate-900 border-t border-slate-850 border-slate-800 text-slate-500 text-xs py-6 px-6 mt-12">
         <div className="max-w-7xl mx-auto flex flex-col items-center gap-2 text-center font-mono">
           <div>
-            <p>Formula 1 Paper Track Vision System</p>
+            <p>F1 Paper Track Vision System</p>
             <p className="text-[10px] text-slate-600 mt-1 uppercase tracking-widest">
               Engineered with physical friction limits & Generative AI co-driving
             </p>
