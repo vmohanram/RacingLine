@@ -22,7 +22,6 @@ export default function App() {
   const [telemetry, setTelemetry] = useState<TelemetrySummary | null>(null);
   const [reportAssets, setReportAssets] = useState<AnalysisAssets>({});
   const [driverName, setDriverName] = useState<string>("");
-  const [isSubmittingScore, setIsSubmittingScore] = useState<boolean>(false);
   const [hasSubmittedThisLap, setHasSubmittedThisLap] = useState<boolean>(false);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<"scan" | "analytics" | "leaderboard">("scan");
   const [activeAnalyticsTab, setActiveAnalyticsTab] = useState<"plots" | "verdict">("plots");
@@ -54,30 +53,6 @@ export default function App() {
     .sort((a, b) => a.lapTime - b.lapTime);
   const bestLapEntry = circuitLeaderboard[0] || null;
 
-  const submitLapRecord = async (name: string, summary: TelemetrySummary) => {
-    const response = await fetch("/api/leaderboard", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        name: name.trim(),
-        track: activeTrackId,
-        lapTime: summary.lapTime,
-        avgSpeed: summary.avgSpeed,
-        maxG: summary.maxG
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to save lap record.");
-    }
-
-    const result = await response.json();
-    setLeaderboard(result.fullList);
-    setHasSubmittedThisLap(true);
-  };
-
   // Handler for when the camera or sketch pad analysis completes
   const handleAnalysisComplete = async (summary: TelemetrySummary, assets?: AnalysisAssets) => {
     setTelemetry(summary);
@@ -106,7 +81,9 @@ export default function App() {
             maxSpeed: summary.maxSpeed,
             maxG: summary.maxG,
             throttleRatio: summary.throttleRatio,
-            averageDeviation: summary.averageDeviation
+            brakingPointsCount: summary.brakingPointsCount,
+            averageDeviation: summary.averageDeviation,
+            points: summary.points
           },
           base64Image: assets?.sourceImage || null
         })
@@ -115,8 +92,9 @@ export default function App() {
       if (response.ok) {
         const result = await response.json();
         setCoachingText(result.coaching);
-        if (driverName.trim()) {
-          await submitLapRecord(driverName, summary);
+        if (!result.warning) {
+          setHasSubmittedThisLap(true);
+          await fetchLeaderboard();
         }
       } else {
         const errorMsg = await response.text();
