@@ -1,6 +1,7 @@
 import React from "react";
 import { Track } from "../tracksData";
-import { TelemetrySummary, getIdealRacingLinePoints } from "../physicsEngine";
+import { TelemetrySummary } from "../physicsEngine";
+import { buildTrackPreviewModel } from "../trackPreview";
 
 interface RacetrackMinimapProps {
   track: Track;
@@ -15,45 +16,6 @@ export default function RacetrackMinimap({
   hoveredDistance,
   className = ""
 }: RacetrackMinimapProps) {
-  const isFinitePoint = (point?: { x: number; y: number } | null): point is { x: number; y: number } => {
-    return !!point && Number.isFinite(point.x) && Number.isFinite(point.y);
-  };
-
-  // Center string of the track guidelines (filtering out NaNs)
-  const validTrackPoints = (track?.points || []).filter(
-    (p) => p && typeof p.x === "number" && !isNaN(p.x) && typeof p.y === "number" && !isNaN(p.y)
-  );
-
-  const trackPathString = validTrackPoints.length > 0
-    ? validTrackPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") + " Z"
-    : "";
-
-  // Dynamic ideal/benchmark path reference points for visual overlay
-  const idealPoints = React.useMemo(() => {
-    try {
-      return getIdealRacingLinePoints(track) || [];
-    } catch {
-      return [];
-    }
-  }, [track]);
-
-  const validIdealPoints = idealPoints.filter(
-    (p) => p && typeof p.x === "number" && !isNaN(p.x) && typeof p.y === "number" && !isNaN(p.y)
-  );
-
-  const idealPathString = validIdealPoints.length > 0
-    ? validIdealPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") + " Z"
-    : "";
-
-  // Scanned user racing line strings from TelemetrySummary points if available
-  const validUserPoints = (summary?.points || []).filter(
-    (p) => p && typeof p.x === "number" && !isNaN(p.x) && typeof p.y === "number" && !isNaN(p.y)
-  );
-
-  const userPathString = validUserPoints.length > 0
-    ? validUserPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") + " Z"
-    : "";
-
   // Find hovered coordinate
   const hoveredTelemetryPoint = React.useMemo(() => {
     if (hoveredDistance === null || hoveredDistance === undefined || !summary?.points?.length) {
@@ -74,51 +36,12 @@ export default function RacetrackMinimap({
     return closestPoint;
   }, [hoveredDistance, summary]);
 
-  const hoveredPoint = isFinitePoint(hoveredTelemetryPoint) ? hoveredTelemetryPoint : null;
+  const previewModel = React.useMemo(
+    () => buildTrackPreviewModel(track, summary?.points || [], hoveredTelemetryPoint),
+    [track, summary?.points, hoveredTelemetryPoint]
+  );
 
-  // Dynamically compute bounding box for optimal zoom and centering so it never appears empty or out-of-bounds
-  const bounds = React.useMemo(() => {
-    const combinedPoints = [
-      ...validTrackPoints,
-      ...validIdealPoints,
-      ...validUserPoints,
-      ...(hoveredPoint ? [hoveredPoint] : [])
-    ].filter(isFinitePoint);
-
-    if (combinedPoints.length === 0) {
-      return { x: 0, y: 0, width: 500, height: 500 };
-    }
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    combinedPoints.forEach((pt) => {
-      if (pt.x < minX) minX = pt.x;
-      if (pt.y < minY) minY = pt.y;
-      if (pt.x > maxX) maxX = pt.x;
-      if (pt.y > maxY) maxY = pt.y;
-    });
-
-    const padding = 35;
-    minX -= padding;
-    minY -= padding;
-    maxX += padding;
-    maxY += padding;
-
-    const w = maxX - minX;
-    const h = maxY - minY;
-    const size = Math.max(w, h, 100);
-    const cx = minX + w / 2;
-    const cy = minY + h / 2;
-
-    return {
-      x: cx - size / 2,
-      y: cy - size / 2,
-      width: size,
-      height: size
-    };
-  }, [validTrackPoints, validIdealPoints, validUserPoints, hoveredPoint]);
+  const { trackPathString, idealPathString, userPathString, bounds, projectedTrackPoints, projectedHoveredPoint } = previewModel;
 
   return (
     <div className={`relative w-full h-full min-h-[260px] bg-slate-950/40 border border-slate-800/60 rounded-xl overflow-hidden shadow-2xl p-4 flex flex-col items-center justify-center ${className}`}>
@@ -199,9 +122,9 @@ export default function RacetrackMinimap({
 
           {/* Start/Finish physical line indicator */}
           {(() => {
-            if (validTrackPoints.length < 2) return null;
-            const p1 = validTrackPoints[0];
-            const p2 = validTrackPoints[1];
+            if (projectedTrackPoints.length < 2) return null;
+            const p1 = projectedTrackPoints[0];
+            const p2 = projectedTrackPoints[1];
             const dx = p2.x - p1.x;
             const dy = p2.y - p1.y;
             const len = Math.sqrt(dx * dx + dy * dy);
@@ -280,12 +203,12 @@ export default function RacetrackMinimap({
           )}
 
           {/* Hovered telemetry coordinate highlighting (Pulsing bright red target indicator) */}
-          {hoveredPoint && (
+          {projectedHoveredPoint && (
             <g>
               {/* Outmost soft glowing red ring */}
               <circle
-                cx={hoveredPoint.x}
-                cy={hoveredPoint.y}
+                cx={projectedHoveredPoint.x}
+                cy={projectedHoveredPoint.y}
                 r="20"
                 fill="rgba(239, 68, 68, 0.18)"
                 stroke="#ef4444"
@@ -294,8 +217,8 @@ export default function RacetrackMinimap({
               />
               {/* Pulsing red ring for dynamic target indication */}
               <circle
-                cx={hoveredPoint.x}
-                cy={hoveredPoint.y}
+                cx={projectedHoveredPoint.x}
+                cy={projectedHoveredPoint.y}
                 r="13"
                 fill="none"
                 stroke="#ef4444"
@@ -304,8 +227,8 @@ export default function RacetrackMinimap({
               />
               {/* Bright core red dot with crisp white border */}
               <circle
-                cx={hoveredPoint.x}
-                cy={hoveredPoint.y}
+                cx={projectedHoveredPoint.x}
+                cy={projectedHoveredPoint.y}
                 r="7"
                 fill="#ef4444"
                 stroke="#ffffff"
