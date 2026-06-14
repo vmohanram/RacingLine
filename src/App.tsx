@@ -623,7 +623,7 @@ export default function App() {
                       <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
                         <span className="text-[10px] font-mono uppercase tracking-[0.22em] text-cyan-300 block">Report Export</span>
                         <p className="mt-1 text-sm leading-relaxed text-slate-300">
-                          Open an interactive HTML report containing the captured track, hover-linked telemetry, mini track, and the race engineer verdict.
+                          Open an interactive HTML report containing the captured track, hover-linked telemetry, mini track, and the race engineer verdict. The HTML file is also downloaded to your local machine when you open it.
                         </p>
                         <button
                           onClick={handleCreatePdfReport}
