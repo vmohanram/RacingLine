@@ -1,13 +1,12 @@
 import { TelemetrySummary } from "../physicsEngine";
 import { buildDriverProxyAnalysis, DriverProxyMetric } from "../driverProxies";
 import { Track } from "../tracksData";
+import { buildTrackPreviewModel } from "../trackPreview";
 
 interface RaceReportOptions {
   track: Track;
   summary: TelemetrySummary;
   coachingText: string;
-  reportTrackImage?: string;
-  sourceImage?: string;
 }
 
 function escapeHtml(value: string) {
@@ -167,8 +166,9 @@ function renderConceptMetrics(summary: TelemetrySummary) {
 }
 
 export function openRaceReportPdf(options: RaceReportOptions) {
-  const { track, summary, coachingText, reportTrackImage, sourceImage } = options;
+  const { track, summary, coachingText } = options;
   const verdictCards = parseCoachingCards(coachingText);
+  const reviewTrackPreview = buildTrackPreviewModel(track, summary.points || [], null, 420);
   const verdictHtml = markdownToHtml(
     coachingText || "## Race Engineer Verdict\nNo verdict payload was available for this session."
   );
@@ -189,44 +189,62 @@ export function openRaceReportPdf(options: RaceReportOptions) {
     `
     : `<p class="verdict-empty">No feedback payload received.</p>`;
 
-  const capturedTrackBlock = reportTrackImage
-    ? `<img src="${reportTrackImage}" alt="Captured racing line" class="track-image" />`
+  const capturedTrackBlock = reviewTrackPreview.trackPathString
+    ? `
+      <div class="track-preview-shell">
+        <svg
+          viewBox="${reviewTrackPreview.bounds.x.toFixed(1)} ${reviewTrackPreview.bounds.y.toFixed(1)} ${reviewTrackPreview.bounds.width.toFixed(1)} ${reviewTrackPreview.bounds.height.toFixed(1)}"
+          class="track-preview-svg"
+          role="img"
+          aria-label="Track preview showing optimal and extracted racing lines"
+        >
+          <path d="${reviewTrackPreview.trackPathString}" fill="none" stroke="#475569" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"></path>
+          <path d="${reviewTrackPreview.trackPathString}" fill="none" stroke="#334155" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="${reviewTrackPreview.trackPathString}" fill="none" stroke="#1e293b" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="${reviewTrackPreview.trackPathString}" fill="none" stroke="#64748b" stroke-width="17" stroke-linecap="round" stroke-linejoin="round" opacity="0.45"></path>
+          <path d="${reviewTrackPreview.trackPathString}" fill="none" stroke="#0f172a" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"></path>
+          ${reviewTrackPreview.idealPathString
+            ? `<path d="${reviewTrackPreview.idealPathString}" fill="none" stroke="#10b981" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"></path>
+               <path d="${reviewTrackPreview.idealPathString}" fill="none" stroke="#10b981" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4 4.5" opacity="0.95"></path>`
+            : ""}
+          ${reviewTrackPreview.userPathString
+            ? `<path d="${reviewTrackPreview.userPathString}" fill="none" stroke="#60a5fa" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.35"></path>
+               <path d="${reviewTrackPreview.userPathString}" fill="none" stroke="#60a5fa" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"></path>
+               <path d="${reviewTrackPreview.userPathString}" fill="none" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"></path>`
+            : ""}
+        </svg>
+      </div>
+    `
     : `<div class="track-image track-placeholder">Captured track preview unavailable</div>`;
 
   const capturedTrackReviewBlock = `
-    <div class="track-review">
+    <div class="panel track-review-panel">
       <div class="track-review-head">
         <div>
           <span class="eyebrow">Captured Track</span>
-          <h3>Extracted Racing Line</h3>
-        </div>
-        <div class="track-legend" aria-label="Captured track legend">
-          <div class="track-legend-item">
-            <span class="track-legend-swatch track-legend-swatch-green"></span>
-            <span>Optimal racing line</span>
-          </div>
-          <div class="track-legend-item">
-            <span class="track-legend-swatch track-legend-swatch-blue"></span>
-            <span>Your extracted racing line</span>
-          </div>
+          <h2>Extracted Racing Line</h2>
         </div>
       </div>
-      <div class="track-review-image-wrap">
-        ${capturedTrackBlock}
+      <div class="track-review-body">
+        <div class="track-review-image-wrap">
+          ${capturedTrackBlock}
+        </div>
+        <div class="track-legend-panel" aria-label="Captured track legend">
+          <span class="eyebrow">Legend</span>
+          <div class="track-legend">
+            <div class="track-legend-item">
+              <span class="track-legend-swatch track-legend-swatch-green"></span>
+              <span>Optimal racing line</span>
+            </div>
+            <div class="track-legend-item">
+              <span class="track-legend-swatch track-legend-swatch-blue"></span>
+              <span>Your extracted racing line</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   `;
-
-  const uploadedSourceBlock = sourceImage
-    ? `
-      <div class="panel source-panel">
-        <span class="eyebrow">Source Capture</span>
-        <img src="${sourceImage}" alt="Source uploaded track" class="track-image source-image" />
-      </div>
-    `
-    : "";
-
-  const panelGridClassName = uploadedSourceBlock ? "panel-grid" : "panel-grid panel-grid-single";
 
   const reportHtml = `
     <!DOCTYPE html>
@@ -376,14 +394,11 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             font-family: var(--font-data);
             color: white;
           }
-          .panel-grid {
+          .primary-grid {
             display: grid;
-            grid-template-columns: 1.05fr 0.95fr;
+            grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
             gap: 18px;
-            align-items: start;
-          }
-          .panel-grid-single {
-            grid-template-columns: 1fr;
+            align-items: stretch;
           }
           .interactive-grid {
             display: grid;
@@ -405,6 +420,29 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             background: #020617;
             object-fit: contain;
           }
+          .track-preview-shell {
+            width: 100%;
+            min-height: 320px;
+            border-radius: 18px;
+            border: 1px solid #334155;
+            background:
+              linear-gradient(to right, rgba(30,41,59,0.08) 1px, transparent 1px),
+              linear-gradient(to bottom, rgba(30,41,59,0.08) 1px, transparent 1px),
+              #020617;
+            background-size: 16px 16px, 16px 16px, auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+          }
+          .track-preview-svg {
+            width: 100%;
+            height: auto;
+            max-width: 320px;
+            max-height: 320px;
+            display: block;
+            filter: drop-shadow(0 0 12px rgba(6,182,212,0.1));
+          }
           .track-placeholder {
             min-height: 320px;
             display: flex;
@@ -412,44 +450,55 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             justify-content: center;
             color: #64748b;
           }
-          .source-panel {
-            margin-top: 18px;
-          }
-          .source-image {
-            max-height: 260px;
-          }
-          .track-review {
-            margin-top: 18px;
-            padding-top: 16px;
-            border-top: 1px solid rgba(148,163,184,0.14);
+          .track-review-panel {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding-bottom: 20px;
           }
           .track-review-head {
             display: flex;
-            justify-content: space-between;
             gap: 16px;
             align-items: flex-start;
             margin-bottom: 12px;
           }
-          .track-review-head h3 {
-            margin: 0;
-            color: white;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
+          .track-review-head h2 {
+            margin-bottom: 0;
+          }
+          .track-review-body {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 200px;
+            gap: 16px;
+            align-items: center;
+            align-content: center;
+            flex: 1;
+            min-height: 100%;
           }
           .track-review-image-wrap {
-            max-width: 420px;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
           }
-          .track-review .track-image {
-            max-height: 250px;
+          .track-review-image-wrap .track-preview-shell,
+          .track-review-image-wrap .track-placeholder {
+            margin: auto;
           }
-          .track-review .track-placeholder {
+          .track-review-panel .track-placeholder {
             min-height: 220px;
+          }
+          .track-legend-panel {
+            border-radius: 18px;
+            border: 1px solid rgba(148,163,184,0.14);
+            background: rgba(2,6,23,0.5);
+            padding: 14px;
+            align-self: center;
           }
           .track-legend {
             display: grid;
             gap: 8px;
-            min-width: 200px;
+            min-width: 0;
           }
           .track-legend-item {
             display: flex;
@@ -698,16 +747,14 @@ export function openRaceReportPdf(options: RaceReportOptions) {
           }
           @media (max-width: 980px) {
             .header,
-            .panel-grid,
+            .primary-grid,
             .interactive-grid,
             .metrics {
               grid-template-columns: 1fr;
             }
+            .track-review-body,
             .verdict-cards {
               grid-template-columns: 1fr;
-            }
-            .track-review-head {
-              flex-direction: column;
             }
             .track-legend {
               min-width: 0;
@@ -749,8 +796,7 @@ export function openRaceReportPdf(options: RaceReportOptions) {
             <div class="metric"><label>Throttle Ratio</label><strong>${summary.throttleRatio.toFixed(0)}%</strong></div>
           </div>
 
-          <div class="${panelGridClassName}">
-            ${uploadedSourceBlock ? `<div>${uploadedSourceBlock}</div>` : ""}
+          <div class="primary-grid">
             <div class="panel">
               <span class="eyebrow">Race Engineer Verdict</span>
               <h2>Session Briefing</h2>
@@ -759,8 +805,8 @@ export function openRaceReportPdf(options: RaceReportOptions) {
                 <p>This view is for the narrative readout: what the lap did well, where time was lost, and what the next correction should be.</p>
               </div>
               <div class="verdict">${verdictCards.length ? verdictCardsHtml : verdictHtml}</div>
-              ${capturedTrackReviewBlock}
             </div>
+            ${capturedTrackReviewBlock}
           </div>
 
           <div class="interactive-grid">

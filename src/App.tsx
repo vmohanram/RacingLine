@@ -20,7 +20,6 @@ export default function App() {
   const [hoveredTelemetryDistance, setHoveredTelemetryDistance] = useState<number | null>(null);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetrySummary | null>(null);
-  const [reportAssets, setReportAssets] = useState<AnalysisAssets>({});
   const [driverName, setDriverName] = useState<string>("");
   const [hasSubmittedThisLap, setHasSubmittedThisLap] = useState<boolean>(false);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<"scan" | "analytics" | "leaderboard">("scan");
@@ -56,7 +55,6 @@ export default function App() {
   // Handler for when the camera or sketch pad analysis completes
   const handleAnalysisComplete = async (summary: TelemetrySummary, assets?: AnalysisAssets) => {
     setTelemetry(summary);
-    setReportAssets(assets || {});
     setHoveredTelemetryDistance(null);
     setCoachingText("");
     setIsCoachingLoading(true);
@@ -112,7 +110,6 @@ export default function App() {
 
   const handleAnalysisInvalidated = () => {
     setTelemetry(null);
-    setReportAssets({});
     setHoveredTelemetryDistance(null);
     setCoachingText("");
     setIsCoachingLoading(false);
@@ -124,9 +121,7 @@ export default function App() {
     openRaceReportPdf({
       track: activeTrackObj,
       summary: telemetry,
-      coachingText,
-      reportTrackImage: reportAssets.reportTrackImage,
-      sourceImage: reportAssets.sourceImage
+      coachingText
     });
   };
 

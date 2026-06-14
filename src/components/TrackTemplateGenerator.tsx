@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { Printer, CheckCircle } from "lucide-react";
 import { Track, transformPointForTemplate } from "../tracksData";
+import { ARUCO_FIDUCIAL_SPECS, getArucoMarkerSvg } from "../arucoFiducials";
 
 interface TrackTemplateGeneratorProps {
   track: Track;
@@ -86,7 +87,7 @@ export default function TrackTemplateGenerator({ track }: TrackTemplateGenerator
             ${svgHtml}
           </div>
           <div class="instructions">
-            F1 TRACK ANALYSIS TEMPLATE — DO NOT CROP BORDERS OR OBLITERATE CORNER QR LABELS.<br/>
+            F1 TRACK ANALYSIS TEMPLATE — DO NOT CROP BORDERS OR OBLITERATE THE ARUCO TAGS.<br/>
             Task: Sketch your racing line perfectly in <b>solid black ink</b> within the track outlines, then photograph/upload!
           </div>
           <script>
@@ -101,11 +102,39 @@ export default function TrackTemplateGenerator({ track }: TrackTemplateGenerator
     printWindow.document.close();
   };
 
-  // Build racetrack polyline pathway string using scaled/centered points to clear all QR markers
+  // Build racetrack polyline pathway string using scaled/centered points to clear all ArUco tags.
   const transformedPoints = track.points.map(transformPointForTemplate);
   const trackPathString = transformedPoints
     .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`)
     .join(" ") + " Z";
+
+  const renderArucoMarker = (fiducialId: string) => {
+    const fiducial = ARUCO_FIDUCIAL_SPECS.find((entry) => entry.id === fiducialId);
+    if (!fiducial) return null;
+
+    const size = fiducial.id === "C" ? 40 : 36;
+    const labelY = fiducial.id === "C" || fiducial.id.startsWith("B") ? -6 : size + 10;
+
+    return (
+      <g
+        key={fiducial.id}
+        transform={`translate(${fiducial.x - size / 2}, ${fiducial.y - size / 2})`}
+      >
+        <g dangerouslySetInnerHTML={{ __html: getArucoMarkerSvg(fiducial.markerId, size) }} />
+        <text
+          x={size / 2}
+          y={labelY}
+          fontSize="6.5"
+          fontFamily="monospace"
+          textAnchor="middle"
+          fill="#0f172a"
+          fontWeight="bold"
+        >
+          AR_{fiducial.id}
+        </text>
+      </g>
+    );
+  };
 
   return (
     <div id="template_generator_comp" className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-white shadow-xl">
@@ -209,69 +238,8 @@ export default function TrackTemplateGenerator({ track }: TrackTemplateGenerator
                 );
               })()}
 
-              {/* THE 7 LANDMARK FIDUCIAL QR MARKERS */}
-              {/* Top Left (TL) (Centered at 30,30) */}
-              <g transform="translate(15, 15)">
-                <rect x="0" y="0" width="30" height="30" fill="#ffffff" stroke="#000000" strokeWidth="2" />
-                <rect x="3.75" y="3.75" width="22.5" height="22.5" fill="#000000" />
-                <rect x="7.5" y="7.5" width="15" height="15" fill="#ffffff" />
-                <rect x="11.25" y="11.25" width="7.5" height="7.5" fill="#000000" />
-                <text x="15" y="38" fontSize="6.5" fontFamily="monospace" textAnchor="middle" fill="#000000" fontWeight="bold">QR_TL</text>
-              </g>
-
-              {/* Top Right (TR) (Centered at 470,30) */}
-              <g transform="translate(455, 15)">
-                <rect x="0" y="0" width="30" height="30" fill="#ffffff" stroke="#000000" strokeWidth="2" />
-                <rect x="3.75" y="3.75" width="22.5" height="22.5" fill="#000000" />
-                <rect x="7.5" y="7.5" width="15" height="15" fill="#ffffff" />
-                <rect x="11.25" y="11.25" width="7.5" height="7.5" fill="#000000" />
-                <text x="15" y="38" fontSize="6.5" fontFamily="monospace" textAnchor="middle" fill="#000000" fontWeight="bold">QR_TR</text>
-              </g>
-
-              {/* Mid Left (ML) (Centered at 30,250) */}
-              <g transform="translate(15, 235)">
-                <rect x="0" y="0" width="30" height="30" fill="#ffffff" stroke="#0891b2" strokeWidth="2" />
-                <rect x="3.75" y="3.75" width="22.5" height="22.5" fill="#0891b2" />
-                <rect x="7.5" y="7.5" width="15" height="15" fill="#ffffff" />
-                <rect x="11.25" y="11.25" width="7.5" height="7.5" fill="#0891b2" />
-                <text x="15" y="38" fontSize="6.5" fontFamily="monospace" textAnchor="middle" fill="#0891b2" fontWeight="bold">QR_ML</text>
-              </g>
-
-              {/* Mid Right (MR) (Centered at 470,250) */}
-              <g transform="translate(455, 235)">
-                <rect x="0" y="0" width="30" height="30" fill="#ffffff" stroke="#0891b2" strokeWidth="2" />
-                <rect x="3.75" y="3.75" width="22.5" height="22.5" fill="#0891b2" />
-                <rect x="7.5" y="7.5" width="15" height="15" fill="#ffffff" />
-                <rect x="11.25" y="11.25" width="7.5" height="7.5" fill="#0891b2" />
-                <text x="15" y="38" fontSize="6.5" fontFamily="monospace" textAnchor="middle" fill="#0891b2" fontWeight="bold">QR_MR</text>
-              </g>
-
-              {/* Center Align (C) (Centered at 250,250) */}
-              <g transform="translate(235, 235)">
-                <rect x="0" y="0" width="30" height="30" fill="#ffffff" stroke="#ca8a04" strokeWidth="2" />
-                <rect x="3.75" y="3.75" width="22.5" height="22.5" fill="#ca8a04" />
-                <rect x="7.5" y="7.5" width="15" height="15" fill="#ffffff" />
-                <rect x="11.25" y="11.25" width="7.5" height="7.5" fill="#ca8a04" />
-                <text x="15" y="-5" fontSize="6.5" fontFamily="monospace" textAnchor="middle" fill="#ca8a04" fontWeight="bold">QR_C</text>
-              </g>
-
-              {/* Bottom Left (BL) (Centered at 30,470) */}
-              <g transform="translate(15, 455)">
-                <rect x="0" y="0" width="30" height="30" fill="#ffffff" stroke="#000000" strokeWidth="2" />
-                <rect x="3.75" y="3.75" width="22.5" height="22.5" fill="#000000" />
-                <rect x="7.5" y="7.5" width="15" height="15" fill="#ffffff" />
-                <rect x="11.25" y="11.25" width="7.5" height="7.5" fill="#000000" />
-                <text x="15" y="-5" fontSize="6.5" fontFamily="monospace" textAnchor="middle" fill="#000000" fontWeight="bold">QR_BL</text>
-              </g>
-
-              {/* Bottom Right (BR) (Centered at 470,470) */}
-              <g transform="translate(455, 455)">
-                <rect x="0" y="0" width="30" height="30" fill="#ffffff" stroke="#000000" strokeWidth="2" />
-                <rect x="3.75" y="3.75" width="22.5" height="22.5" fill="#000000" />
-                <rect x="7.5" y="7.5" width="15" height="15" fill="#ffffff" />
-                <rect x="11.25" y="11.25" width="7.5" height="7.5" fill="#000000" />
-                <text x="15" y="-5" fontSize="6.5" fontFamily="monospace" textAnchor="middle" fill="#000000" fontWeight="bold">QR_BR</text>
-              </g>
+              {/* THE 7 LANDMARK ARUCO FIDUCIAL TAGS */}
+              {ARUCO_FIDUCIAL_SPECS.map((fiducial) => renderArucoMarker(fiducial.id))}
 
               {/* Title Watermark */}
               <text x="250" y="250" fill="#94a3b8" opacity="0.15" fontSize="18" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle" transform="rotate(-30 250 250)">
@@ -377,13 +345,13 @@ export default function TrackTemplateGenerator({ track }: TrackTemplateGenerator
               Generate Printable F1 Track
             </h2>
             <p className="text-sm text-slate-300 leading-relaxed mb-4">
-              Our automated computer vision system requires specific fiducial coordinates anchor points near the borders to normalise, de-rotate, and extract racing ink lines cleanly from your camera scans.
+              Our automated computer vision system now uses seven machine-readable ArUco tags to normalise, de-rotate, and extract racing ink lines cleanly from your camera scans.
             </p>
 
             <div className="space-y-2.5 mb-5 text-xs text-slate-300">
               <div className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Four corner <b>Fiducial QR Targets</b> for precision optical alignment.</span>
+                <span>Seven printed <b>ArUco fiducial tags</b> for precision optical alignment.</span>
               </div>
               <div className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />

@@ -5,9 +5,15 @@ import { Upload, Edit3, Image as ImageIcon, RefreshCw, ZoomIn, Eye } from "lucid
 import { Track, getIdealRacingLineOffset, transformPointForTemplate } from "../tracksData";
 import { simulateLap, TelemetrySummary } from "../physicsEngine";
 import TrackTemplateGenerator from "./TrackTemplateGenerator";
+import {
+  CalibrationMarker,
+  cloneDefaultMarkers,
+  countDetectedCalibrationMarkers,
+  detectArucoCalibrationMarkers,
+  getDefaultCalibrationMarker
+} from "../arucoFiducials";
 
 export interface AnalysisAssets {
-  reportTrackImage?: string;
   sourceImage?: string;
 }
 
@@ -23,13 +29,6 @@ interface VisionSystemProps {
 
 type InputMode = "digital" | "upload";
 
-interface CalibrationMarker {
-  id: string;
-  x: number;
-  y: number;
-  label: string;
-}
-
 interface Point2D {
   x: number;
   y: number;
@@ -37,30 +36,6 @@ interface Point2D {
 
 const NORMALIZED_TRACK_SIZE = 500;
 const NORMALIZED_PAGE_HEIGHT = 750;
-
-const DEFAULT_MARKERS: CalibrationMarker[] = [
-  { id: "TL", x: 10, y: 10, label: "Top-Left (TL)" },
-  { id: "ML", x: 10, y: 50, label: "Mid-Left (ML)" },
-  { id: "BL", x: 10, y: 90, label: "Bottom-Left (BL)" },
-  { id: "TR", x: 90, y: 10, label: "Top-Right (TR)" },
-  { id: "MR", x: 90, y: 50, label: "Mid-Right (MR)" },
-  { id: "BR", x: 90, y: 90, label: "Bottom-Right (BR)" },
-  { id: "C", x: 50, y: 50, label: "Center Align (C)" }
-];
-
-const EXPECTED_FIDUCIALS: Record<string, { x: number; y: number; label: string; kind: "dark" | "cyan" | "amber" }> = {
-  TL: { x: 30, y: 30, label: "Top-Left (TL)", kind: "dark" },
-  ML: { x: 30, y: 250, label: "Mid-Left (ML)", kind: "cyan" },
-  BL: { x: 30, y: 470, label: "Bottom-Left (BL)", kind: "dark" },
-  TR: { x: 470, y: 30, label: "Top-Right (TR)", kind: "dark" },
-  MR: { x: 470, y: 250, label: "Mid-Right (MR)", kind: "cyan" },
-  BR: { x: 470, y: 470, label: "Bottom-Right (BR)", kind: "dark" },
-  C: { x: 250, y: 250, label: "Center Align (C)", kind: "amber" }
-};
-
-function cloneDefaultMarkers(): CalibrationMarker[] {
-  return DEFAULT_MARKERS.map((marker) => ({ ...marker }));
-}
 
 function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -298,19 +273,6 @@ function warpImageFromQuad(
   return outputCanvas;
 }
 
-function classifyMarkerPixel(kind: "dark" | "cyan" | "amber", r: number, g: number, b: number): boolean {
-  const luminance = getLuminance(r, g, b);
-  const channelSpread = Math.max(r, g, b) - Math.min(r, g, b);
-  const isMonochromeDark = luminance < 150 && channelSpread < 45;
-  if (kind === "dark") {
-    return luminance < 115 || isMonochromeDark;
-  }
-  if (kind === "cyan") {
-    return (b > 95 && g > 95 && r < 100) || isMonochromeDark;
-  }
-  return (r > 130 && g > 95 && b < 95) || isMonochromeDark;
-}
-
 function extractTrackSquare(
   source: CanvasImageSource,
   sourceWidth: number,
@@ -329,42 +291,6 @@ function extractTrackSquare(
   return trackCanvas;
 }
 
-function detectFiducialMarkers(trackCanvas: HTMLCanvasElement): CalibrationMarker[] {
-  const ctx = trackCanvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return cloneDefaultMarkers();
-
-  const { data, width, height } = ctx.getImageData(0, 0, trackCanvas.width, trackCanvas.height);
-
-  return Object.entries(EXPECTED_FIDUCIALS).map(([id, fiducial]) => {
-    const radius = id === "C" ? 42 : 36;
-    let sumX = 0;
-    let sumY = 0;
-    let matches = 0;
-
-    for (let y = Math.max(0, fiducial.y - radius); y <= Math.min(height - 1, fiducial.y + radius); y++) {
-      for (let x = Math.max(0, fiducial.x - radius); x <= Math.min(width - 1, fiducial.x + radius); x++) {
-        const idx = (y * width + x) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        if (!classifyMarkerPixel(fiducial.kind, r, g, b)) continue;
-        sumX += x;
-        sumY += y;
-        matches++;
-      }
-    }
-
-    const centerX = matches > 60 ? sumX / matches : fiducial.x;
-    const centerY = matches > 60 ? sumY / matches : fiducial.y;
-    return {
-      id,
-      label: fiducial.label,
-      x: Number(((centerX / NORMALIZED_TRACK_SIZE) * 100).toFixed(1)),
-      y: Number(((centerY / NORMALIZED_TRACK_SIZE) * 100).toFixed(1))
-    };
-  });
-}
-
 async function autoNormalizeUpload(src: string): Promise<{ imageSrc: string; markers: CalibrationMarker[] } | null> {
   const img = await loadImageElement(src);
   const sourceWidth = img.naturalWidth || img.width;
@@ -378,7 +304,7 @@ async function autoNormalizeUpload(src: string): Promise<{ imageSrc: string; mar
     if (preScannedTrack) {
       return {
         imageSrc: preScannedTrack.toDataURL("image/png"),
-        markers: detectFiducialMarkers(preScannedTrack)
+        markers: detectArucoCalibrationMarkers(preScannedTrack)
       };
     }
   }
@@ -404,7 +330,7 @@ async function autoNormalizeUpload(src: string): Promise<{ imageSrc: string; mar
 
   return {
     imageSrc: trackCanvas.toDataURL("image/png"),
-    markers: detectFiducialMarkers(trackCanvas)
+    markers: detectArucoCalibrationMarkers(trackCanvas)
   };
 }
 
@@ -431,8 +357,8 @@ export default function VisionSystem({
   const [uploadValidationMessage, setUploadValidationMessage] = useState<string | null>(null);
   const [hasUserEditedTrack, setHasUserEditedTrack] = useState(false);
 
-  // Calibration preset is fixed to the printable template fiducials.
-  const calibrationPreset = "qr" as const;
+  // Calibration preset is fixed to the printable ArUco fiducials.
+  const calibrationPreset = "aruco" as const;
 
   // Splits tracking for manual/scanned alignment
   const [isExtracted, setIsExtracted] = useState(false);
@@ -511,14 +437,17 @@ export default function VisionSystem({
       if (normalized) {
         setImageSrc(normalized.imageSrc);
         setMarkers(normalized.markers);
+        setHasAdjustedUploadFiducials(countDetectedCalibrationMarkers(normalized.markers) >= 4);
       } else {
         setImageSrc(rawImageSrc);
         setMarkers(cloneDefaultMarkers());
+        setHasAdjustedUploadFiducials(false);
       }
     } catch (error) {
       console.error("Automatic paper calibration failed:", error);
       setImageSrc(rawImageSrc);
       setMarkers(cloneDefaultMarkers());
+      setHasAdjustedUploadFiducials(false);
     } finally {
       setIsProcessing(false);
     }
@@ -637,129 +566,6 @@ export default function VisionSystem({
       const templatePoint = transformPointForTemplate(offsetPoint);
       return getBilinearProjectedCoordinate(templatePoint.x, templatePoint.y);
     });
-  };
-
-  // Render high contrast superimposed track map image for student report sheet
-  const generateTrackReportImage = (offsets: number[]): string => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 500;
-    canvas.height = 500;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return "";
-
-    if (mode !== "digital" && loadedImageRef.current) {
-      ctx.drawImage(loadedImageRef.current, 0, 0, 500, 500);
-
-      ctx.fillStyle = "rgba(2, 6, 23, 0.18)";
-      ctx.fillRect(0, 0, 500, 500);
-
-      drawProjectedTrackCenterPath(ctx, "rgba(15, 23, 42, 0.32)", 20);
-      drawProjectedTrackCenterPath(ctx, "rgba(34, 211, 238, 0.18)", 5);
-      drawProjectedTrackCenterPath(ctx, "rgba(14, 165, 233, 0.65)", 1.5, true);
-
-      drawLinearClosedPath(
-        ctx,
-        getOffsetPathPoints(
-          track.points.map((_, i) => getIdealRacingLineOffset(track.id, i)),
-          true
-        )
-      );
-      ctx.strokeStyle = "#22c55e";
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "rgba(34, 197, 94, 0.22)";
-      ctx.shadowBlur = 4;
-      ctx.stroke();
-
-      ctx.save();
-      drawLinearClosedPath(ctx, getOffsetPathPoints(offsets, true));
-      ctx.strokeStyle = "rgba(96, 165, 250, 0.98)";
-      ctx.lineWidth = 3.5;
-      ctx.shadowColor = "#60a5fa";
-      ctx.shadowBlur = 5;
-      ctx.stroke();
-      ctx.restore();
-
-      const projectedStart = getBilinearProjectedCoordinate(
-        transformPointForTemplate(track.points[0]).x,
-        transformPointForTemplate(track.points[0]).y
-      );
-      ctx.beginPath();
-      ctx.arc(projectedStart.x, projectedStart.y, 5, 0, 2 * Math.PI);
-      ctx.fillStyle = "#e11d48";
-      ctx.fill();
-
-      return canvas.toDataURL("image/png");
-    }
-
-    // 1. Clear background
-    ctx.fillStyle = "#0f172a";
-    ctx.fillRect(0, 0, 500, 500);
-
-    // 2. Grids
-    ctx.strokeStyle = "#1e293b";
-    ctx.lineWidth = 1;
-    for (let i = 25; i < 500; i += 25) {
-      ctx.beginPath();
-      ctx.moveTo(i, 0); ctx.lineTo(i, 500);
-      ctx.moveTo(0, i); ctx.lineTo(500, i);
-      ctx.stroke();
-    }
-
-    // Draw track boundaries
-    const drawBounds = (color: string, width: number, isKerb: boolean = false) => {
-      ctx.save();
-      ctx.beginPath();
-      track.points.forEach((pt, i) => {
-        if (i === 0) ctx.moveTo(pt.x, pt.y);
-        else ctx.lineTo(pt.x, pt.y);
-      });
-      ctx.closePath();
-      ctx.lineWidth = width;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-
-      if (isKerb) {
-        ctx.strokeStyle = "#ffffff";
-        ctx.stroke();
-        ctx.strokeStyle = "#ef4444";
-        ctx.setLineDash([15, 15]);
-        ctx.stroke();
-      } else {
-        ctx.strokeStyle = color;
-        ctx.stroke();
-      }
-      ctx.restore();
-    };
-
-    drawBounds("#334155", 24);
-    drawBounds("#ef4444", 26, true);
-    drawBounds("#1e293b", 20);
-
-    // Draw Optimal Line (Green)
-    drawSmoothClosedPath(
-      ctx,
-      track.points.map((_, i) => getOffsetTrackPoint(i, getIdealRacingLineOffset(track.id, i)))
-    );
-    ctx.strokeStyle = "#22c55e";
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    // Draw Student Line (Glowing Blue)
-    drawSmoothClosedPath(ctx, getOffsetPathPoints(offsets));
-    ctx.strokeStyle = "rgba(96, 165, 250, 0.98)";
-    ctx.lineWidth = 3.5;
-    ctx.shadowColor = "#60a5fa";
-    ctx.shadowBlur = 5;
-    ctx.stroke();
-    
-    // Start Finish Dot
-    const firstPt = track.points[0];
-    ctx.beginPath();
-    ctx.arc(firstPt.x, firstPt.y, 5, 0, 2 * Math.PI);
-    ctx.fillStyle = "#e11d48";
-    ctx.fill();
-
-    return canvas.toDataURL("image/png");
   };
 
   // Drag handlers for perspective markers
@@ -1024,8 +830,8 @@ export default function VisionSystem({
     let u = tx / 500;
     let v = ty / 500;
 
-    if (calibrationPreset === "qr") {
-      // The QR codes on the printed page are physically placed with their centers at 6% and 94% margins (30px and 470px).
+    if (calibrationPreset === "aruco") {
+      // The ArUco tags on the printed page are physically placed with their centers at 6% and 94% margins (30px and 470px).
       u = (tx / 500 - 0.06) / 0.88;
       v = (ty / 500 - 0.06) / 0.88;
     } else if (calibrationPreset === "borders") {
@@ -1038,13 +844,13 @@ export default function VisionSystem({
     u = Math.max(0, Math.min(1, u));
     v = Math.max(0, Math.min(1, v));
 
-    const TL = markers.find((m) => m.id === "TL") || { x: 10, y: 10 };
-    const TR = markers.find((m) => m.id === "TR") || { x: 90, y: 10 };
-    const BL = markers.find((m) => m.id === "BL") || { x: 10, y: 90 };
-    const BR = markers.find((m) => m.id === "BR") || { x: 90, y: 90 };
-    const ML = markers.find((m) => m.id === "ML") || { x: 10, y: 50 };
-    const MR = markers.find((m) => m.id === "MR") || { x: 90, y: 50 };
-    const C  = markers.find((m) => m.id === "C")  || { x: 50, y: 50 };
+    const TL = markers.find((m) => m.id === "TL") || getDefaultCalibrationMarker("TL");
+    const TR = markers.find((m) => m.id === "TR") || getDefaultCalibrationMarker("TR");
+    const BL = markers.find((m) => m.id === "BL") || getDefaultCalibrationMarker("BL");
+    const BR = markers.find((m) => m.id === "BR") || getDefaultCalibrationMarker("BR");
+    const ML = markers.find((m) => m.id === "ML") || getDefaultCalibrationMarker("ML");
+    const MR = markers.find((m) => m.id === "MR") || getDefaultCalibrationMarker("MR");
+    const C  = markers.find((m) => m.id === "C")  || getDefaultCalibrationMarker("C");
 
     // Convert % markers back to 500px canvas dimension space
     const TL_x = (TL.x / 100) * 500;
@@ -1302,8 +1108,7 @@ export default function VisionSystem({
       const summaryResult = simulateLap(track, userPointsArray);
       try {
         await onAnalysisComplete(summaryResult, {
-          sourceImage: imageSrc,
-          reportTrackImage: generateTrackReportImage(offsetsSnapshot)
+          sourceImage: imageSrc
         });
       } finally {
         setIsProcessing(false);
@@ -1341,9 +1146,7 @@ export default function VisionSystem({
 
       const summaryResult = simulateLap(track, userPointsArray);
       try {
-        await onAnalysisComplete(summaryResult, {
-          reportTrackImage: generateTrackReportImage(offsetsSnapshot)
-        });
+        await onAnalysisComplete(summaryResult);
       } finally {
         setIsProcessing(false);
         setIsSubmittingSimulation(false);
@@ -1441,7 +1244,7 @@ export default function VisionSystem({
               <div className="flex flex-col items-start gap-2 text-sm text-slate-300 sm:flex-row sm:flex-wrap sm:items-center sm:justify-start">
                 <span className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full bg-amber-400 shrink-0" />
-                  Align the fiducials to the template
+                  Align the ArUco tags to the template
                 </span>
                 <span className="hidden h-3 w-px bg-slate-800 sm:block" />
                 <span className="flex items-center gap-2">
@@ -1667,14 +1470,14 @@ export default function VisionSystem({
             </div>
           )}
           <p className="text-[11px] font-mono text-slate-400 text-center uppercase tracking-wider bg-slate-950/40 px-3 py-1.5 rounded-md border border-slate-850/60 w-full">
-            Fine-tune the fiducials only if the projected track needs correction.
+            Fine-tune the ArUco tags only if the projected track needs correction.
           </p>
         </div>
       ) : (
         mode === "digital" ? null : (
           imageSrc && (
             <p className="text-[11px] font-mono text-slate-400 text-center uppercase tracking-wider bg-slate-950/40 px-3 py-1.5 rounded-md border border-slate-850/60 mt-4 max-w-[760px] xl:max-w-[980px] w-full">
-              Fine-tune the red fiducials only if the projected track needs correction.
+              Fine-tune the red ArUco tags only if the projected track needs correction.
             </p>
           )
         )

@@ -445,7 +445,7 @@ export function getIdealRacingLineOffset(trackId: string, ptIndex: number): numb
 }
 
 // Transforms a 0..500 point to scale down and center it inside the printable template
-// so that it never overlaps with the 7-point QR fiducials placed at the edges/corners/center.
+// so that it never overlaps with the 7-point ArUco fiducials placed at the edges/corners/center.
 export function transformPointForTemplate(p: { x: number; y: number }): { x: number; y: number } {
   // Center is (250, 250)
   // Scale down by 0.72 to keep it bounded exactly from [110px..390px] so it is safe from:
